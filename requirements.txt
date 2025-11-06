@@ -1,0 +1,6 @@
+# Project Dependencies
+# Add your application-specific dependencies here
+
+# Framework dependency
+osprey-framework>=0.8.1
+
