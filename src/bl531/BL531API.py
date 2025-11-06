@@ -3,18 +3,22 @@ BL531 Beamline Control API.
 
 Provides interface to submit plans to the BL531 beamline's Bluesky Queue Server.
 Does NOT handle data retrieval - that's left to separate data analysis tools.
+
+Can run in MOCK mode for testing without a real beamline connection.
 """
 import requests
 import time
+import uuid
 from datetime import datetime
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
+import os
 
+# For testing API separate from the AI agent
 try:  
     from configs.logger import get_logger
 except ImportError: 
     from logging import getLogger as get_logger
-
 
 
 logger = get_logger("bl531_api")
@@ -33,6 +37,10 @@ BL531_DETECTORS = {
     "diode",
     "det",
 }
+
+# let everybody can also test the AI agent
+# Check if we should use mock mode
+MOCK_MODE = os.getenv("BL531_MOCK_MODE", "true").lower() == "true"
 
 # ============================================================================
 # Data Models
@@ -56,24 +64,31 @@ class BL531API:
     
     This API ONLY handles plan submission and execution.
     Data retrieval and analysis should be handled separately.
+    
+    Set environment variable BL531_MOCK_MODE=true to use mock mode for testing.
     """
     
-    def __init__(self, base_url: str, api_key: str):
+    def __init__(self, base_url: str, api_key: str, mock_mode: bool = MOCK_MODE):
         """
         Initialize the BL531API control client.
         
         Args:
             base_url: URL of the Bluesky Queue Server
             api_key: API key for authentication
+            mock_mode: If True, simulate API calls without real connection
         """
         self.base_url = base_url
         self.api_key = api_key
+        self.mock_mode = mock_mode
         self.headers = {
             "Content-Type": "application/json",
             "Authorization": f"Apikey {self.api_key}",
         }
         
-        logger.info(f"Initializing BL531API with base_url={base_url}")
+        if self.mock_mode:
+            logger.warning("🎭 BL531API running in MOCK MODE - no real beamline connection")
+        else:
+            logger.info(f"Initializing BL531API with base_url={base_url}")
 
     def count(self, detectors: List[str], num: int = 1, metadata: Optional[Dict[str, Any]] = None) -> PlanResult:
         """
@@ -93,6 +108,9 @@ class BL531API:
         logger.info(f"📊 Submitting count plan: detectors={detectors}, num={num}")
         
         self._validate_detectors(detectors)
+        
+        if self.mock_mode:
+            return self._mock_plan_execution("count")
         
         plan_dict = {
             "item": {
@@ -149,6 +167,9 @@ class BL531API:
         self._validate_detectors(detectors)
         self._validate_motor(motor)
         
+        if self.mock_mode:
+            return self._mock_plan_execution("scan")
+        
         plan_dict = {
             "item": {
                 "name": "scan",
@@ -187,6 +208,9 @@ class BL531API:
             PlanResult with run_uid
         """
         logger.info("🎯 Submitting automatic GISAXS alignment plan")
+        
+        if self.mock_mode:
+            return self._mock_plan_execution("automatic_gisaxs_alignment")
         
         plan_dict = {
             "item": {
@@ -230,6 +254,19 @@ class BL531API:
                 f"Invalid motor: {motor}. Available motors: {BL531_MOTORS}"
             )
         logger.info(f"   ✅ Motor validated: {motor}")
+
+    def _mock_plan_execution(self, plan_name: str) -> PlanResult:
+        """Simulate plan execution in mock mode."""
+        mock_run_uid = str(uuid.uuid4())
+        logger.info(f"🎭 MOCK: Simulating {plan_name} execution")
+        time.sleep(0.5)  # Simulate brief execution time
+        logger.info(f"🎭 MOCK: Plan completed with run_uid: {mock_run_uid}")
+        
+        return PlanResult(
+            run_uid=mock_run_uid,
+            plan_name=plan_name,
+            timestamp=datetime.now()
+        )
 
     def _submit_plan(self, plan_dict: Dict[str, Any]) -> str:
         """Submit a plan to the queue and return the item_uid."""
@@ -278,12 +315,27 @@ class BL531API:
             
             time.sleep(1)
 
+
 # ============================================================================
 # Module-level instance
 # ============================================================================
 
-
-bl531 = BL531API(
-    base_url="http://localhost:60610",
-    api_key="test"
-)
+# Check environment for mock mode or connection settings
+if MOCK_MODE:
+    logger.info("🎭 Creating BL531API instance in MOCK MODE")
+    bl531 = BL531API(
+        base_url="http://mock-server:60610",  # Placeholder URL
+        api_key="mock",
+        mock_mode=True
+    )
+else:
+    # Try localhost first, fallback to docker internal
+    base_url = os.getenv("BL531_BASE_URL", "http://localhost:60610")
+    api_key = os.getenv("BL531_API_KEY", "test")
+    
+    logger.info(f"Creating BL531API instance with base_url={base_url}")
+    bl531 = BL531API(
+        base_url=base_url,
+        api_key=api_key,
+        mock_mode=False
+    )
