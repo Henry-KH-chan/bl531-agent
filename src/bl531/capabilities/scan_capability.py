@@ -190,7 +190,7 @@ class ScanCapability(BaseCapability):
                 expected_output=registry.context_types.SCAN_PLAN_CONTEXT,
                 success_criteria="Scan completes successfully and returns run_uid for data analysis.",
                 inputs={
-                    "MOTOR_NAME": "hexapod_motor_Ry",
+                    "MOTOR_NAME": "gi_angle",
                     "START_POSITION": 0.1,
                     "STOP_POSITION": 0.2,
                     "NUM_POINTS": 5,
@@ -228,7 +228,7 @@ class ScanCapability(BaseCapability):
                 expected_output=registry.context_types.SCAN_PLAN_CONTEXT,
                 success_criteria="Scan completes successfully and returns run_uid for data analysis.",
                 inputs={
-                    "MOTOR_NAME": "hexapod_motor_Ry",
+                    "MOTOR_NAME": "gi_angle",
                     "START_POSITION": 0.1,
                     "STOP_POSITION": 0.2,
                     "NUM_POINTS": 5,
@@ -249,7 +249,7 @@ class ScanCapability(BaseCapability):
                 **Inputs:**
                 You MUST populate the `inputs` field with these keys:
                 - `MOTOR_NAME`: Motor to scan. Choose from:
-                  * "hexapod_motor_Ry" for grazing angle, incidence angle, tilt, rotation
+                  * "gi_angle" for grazing angle, incidence angle, tilt, rotation
                   * "hexapod_motor_Ty" for lateral position, horizontal movement
                   * "hexapod_motor_Tz" for vertical position, height
                 - `START_POSITION`: Numerical starting value for the scan
@@ -262,13 +262,13 @@ class ScanCapability(BaseCapability):
                 
                 **Translation Examples:**
                 "GISAXS from 0.1 to 0.2 in 5 steps"
-                → MOTOR_NAME: "hexapod_motor_Ry", START: 0.1, STOP: 0.2, NUM: 5, DETECTORS: ["det"]
+                → MOTOR_NAME: "gi_angle", START: 0.1, STOP: 0.2, NUM: 5, DETECTORS: ["det"]
                 
                 "Scan Ty from 0 to 0.3, 10 points"
                 → MOTOR_NAME: "hexapod_motor_Ty", START: 0.0, STOP: 0.3, NUM: 10, DETECTORS: ["det"]
                 
                 "Images at angles 0.12, 0.15, 0.18"
-                → MOTOR_NAME: "hexapod_motor_Ry", START: 0.12, STOP: 0.18, NUM: 3, DETECTORS: ["det"]
+                → MOTOR_NAME: "gi_angle", START: 0.12, STOP: 0.18, NUM: 3, DETECTORS: ["det"]
                 
                 **Output:**
                 Produces a SCAN_PLAN_CONTEXT object containing run_uid for data retrieval.

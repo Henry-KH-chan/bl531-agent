@@ -29,7 +29,7 @@ logger = get_logger("bl531_api")
 
 BL531_MOTORS = {
     "hexapod_motor_Ry",
-    "hexapod_motor_Ty",
+    "gi_angle",
     "hexapod_motor_Tz",
 }
 
@@ -310,7 +310,7 @@ class BL531API:
                     
                     if run_uids and exit_status == "completed":
                         return run_uids[0]
-                    elif exit_status in ["failed", "aborted"]:
+                    elif exit_status in ["failed", "unknown"]:
                         raise RuntimeError(f"Plan failed: {exit_status}")
             
             time.sleep(1)

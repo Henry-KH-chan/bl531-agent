@@ -333,6 +333,54 @@ print(f"Run UID: {{run_uid}}")""",
         }
 
 
+class AlignmentContext(CapabilityContext):
+    """Result from GISAXS alignment procedure."""
+    
+    CONTEXT_TYPE: ClassVar[str] = "ALIGNMENT_CONTEXT"
+    CONTEXT_CATEGORY: ClassVar[str] = "COMPUTATIONAL_DATA"
+    
+    run_uid: str = Field(
+        description="Unique identifier for the alignment run in the data catalog"
+    )
+    
+    alignment_type: str = Field(
+        description="Type of alignment performed (e.g., 'automatic_gisaxs')"
+    )
+    
+    timestamp: datetime = Field(
+        description="When the alignment was performed"
+    )
+    
+    status: str = Field(
+        default="completed",
+        description="Alignment status: 'completed', 'failed', 'in_progress'"
+    )
+    
+    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """Provide access information for LLM."""
+        key_ref = key_name if key_name else "key_name"
+        
+        return {
+            "access_pattern": f"context.ALIGNMENT_CONTEXT.{key_ref}",
+            "available_fields": ["run_uid", "alignment_type", "timestamp", "status"],
+            "example_usage": f"""# Access alignment results
+run_uid = context.ALIGNMENT_CONTEXT.{key_ref}.run_uid
+status = context.ALIGNMENT_CONTEXT.{key_ref}.status
+timestamp = context.ALIGNMENT_CONTEXT.{key_ref}.timestamp""",
+            "data_structure": "Single alignment result"
+        }
+    
+    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """Generate human-readable summary."""
+        return {
+            "type": "GISAXS Alignment",
+            "alignment_type": self.alignment_type,
+            "status": self.status,
+            "run_uid": self.run_uid,
+            "timestamp": self.timestamp.isoformat()
+        }
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # GISAXS ALIGNMENT CONTEXT
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

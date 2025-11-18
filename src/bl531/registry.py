@@ -93,6 +93,21 @@ class Bl531RegistryProvider(RegistryConfigProvider):
                 # ────────────────────────────────────────────────────────
                 # Executes automatic GISAXS alignment
                 # Finds reference zero angle of Ry motor
+                # Add to capabilities list
+                CapabilityRegistration(
+                    name="bl531_gisaxs_alignment",
+                    module_path="bl531.capabilities.gisaxs_alignment_capability",
+                    class_name="GISAXSAlignmentCapability",
+                    description="Execute automatic GISAXS alignment to find reference zero angle",
+                    provides=["ALIGNMENT_CONTEXT"],
+                    requires=[]
+                ),
+                
+                # ────────────────────────────────────────────────────────
+                # GISAXS ALIGNMENT CAPABILITY
+                # ────────────────────────────────────────────────────────
+                # Executes automatic GISAXS alignment
+                # Finds reference zero angle of Ry motor
                 # CapabilityRegistration(
                 #     name="bl531_gisaxs_alignment",
                 #     module_path="bl531.capabilities.gisaxs_alignment_capability",
@@ -122,6 +137,9 @@ class Bl531RegistryProvider(RegistryConfigProvider):
                 ),
                 
                 # ────────────────────────────────────────────────────────
+                # GISAXS ALIGNMENT CONTEXT
+                # ─────────────────────────────────────────────────
+                # ────────────────────────────────────────────────────────
                 # SCAN PLAN CONTEXT
                 # ────────────────────────────────────────────────────────
                 # Output from scan capability
@@ -132,6 +150,14 @@ class Bl531RegistryProvider(RegistryConfigProvider):
                     class_name="ScanPlanContext"
                 ),
                 
+                # Add to context_classes list
+                ContextClassRegistration(
+                    context_type="ALIGNMENT_CONTEXT",
+                    module_path="bl531.context_classes",
+                    class_name="AlignmentContext"
+                ),
+
+
                 # ────────────────────────────────────────────────────────
                 # GISAXS ALIGNMENT CONTEXT
                 # ────────────────────────────────────────────────────────
