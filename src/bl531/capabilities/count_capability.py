@@ -1,8 +1,8 @@
 """
 Count Plan Capability for BL531 Beamline.
 
-Executes a count plan to read detectors n times.
-Can also be used to take single images.
+Executes a count plan, retrieves the data, and returns it formatted.
+This is a complete workflow: measure → retrieve → format.
 """
 
 from typing import Dict, Any, Optional
@@ -21,8 +21,9 @@ from osprey.registry import get_registry
 from osprey.utils.logger import get_logger
 from osprey.utils.streaming import get_streamer
 
-from bl531.context_classes import CountPlanContext
+from bl531.context_classes import RunDataContext
 from bl531.BL531API import bl531
+from bl531.BL531DataAPI import bl531_data
 
 logger = get_logger("count_capability")
 registry = get_registry()
@@ -33,41 +34,31 @@ class CountCapabilityError(Exception):
     pass
 
 
-class InvalidDetectorError(CountCapabilityError):
-    """Raised when invalid detector is specified."""
-    pass
-
-
-class PlanExecutionError(CountCapabilityError):
-    """Raised when plan execution fails."""
-    pass
-
-
 @capability_node
 class CountCapability(BaseCapability):
-    """Execute a count plan on the BL531 beamline.
+    """Execute count plan, retrieve data, and return formatted results.
     
-    Reads detectors n times and returns the run_uid for data analysis.
-    Can also be used to take single images with the detector.
+    This capability does the complete workflow:
+    1. Execute count plan (measure with detectors)
+    2. Retrieve the data using run_uid
+    3. Return formatted data ready for user
     """
     
     name = "bl531_count"
-    description = "Execute a count plan to read detectors n times on BL531 beamline (can also take single images)"
-    provides = ["COUNT_PLAN_CONTEXT"]
-    # Orchestrator must provide these inputs
+    description = "Execute count plan and return formatted data"
+    provides = ["RUN_DATA_CONTEXT"]
     requires = ["DETECTORS", "NUM_READINGS"]
     
     @staticmethod
     async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-        """Execute count plan using inputs from orchestrator."""
+        """Execute count plan and retrieve data."""
         
         step = StateManager.get_current_step(state)
         streamer = get_streamer("count_capability", state)
         
         try:
-            # Extract inputs from orchestrator (same pattern as scan)
+            # Extract inputs
             inputs_list = step.get('inputs', [])
-            logger.info(inputs_list)
             combined_inputs = {}
             if isinstance(inputs_list, list):
                 for item in inputs_list:
@@ -76,64 +67,76 @@ class CountCapability(BaseCapability):
             else:
                 combined_inputs = inputs_list if isinstance(inputs_list, dict) else {}
             
-            # Extract required parameters
+            # Get parameters
             detectors = combined_inputs.get("DETECTORS")
             num = combined_inputs.get("NUM_READINGS")
             
-            # Convert to proper types
+            # Convert types
             num = int(num)
             
-            # Parse detectors - orchestrator might send as string representation
+            # Parse detectors
             if isinstance(detectors, str):
                 import ast
                 try:
-                    # Try to parse as Python literal (e.g., "['det']" → ['det'])
                     detectors = ast.literal_eval(detectors)
                 except (ValueError, SyntaxError):
-                    # If that fails, treat as single detector name
                     detectors = [detectors]
             
-            # Ensure detectors is a list
             if not isinstance(detectors, list):
                 detectors = [detectors]
             
             context_key = step.get("context_key", "count_result")
             
-            logger.info(f"📊 Executing count plan: detectors={detectors}, num={num}")
-            streamer.status(f"Reading detectors {detectors} {num} time(s)...")
+            # ==========================================
+            # STEP 1: Execute count plan
+            # ==========================================
+            logger.info(f"📊 Step 1: Executing count plan: detectors={detectors}, num={num}")
+            streamer.status(f"Measuring with {detectors}...")
             
-            # Call API to submit plan
             result = bl531.count(detectors=detectors, num=num)
+            run_uid = result.run_uid
             
-            logger.info(f"✅ Count plan completed. run_uid: {result.run_uid}")
-            streamer.status(f"Count completed with run_uid: {result.run_uid}")
+            logger.info(f"✅ Count completed. run_uid: {run_uid}")
+            streamer.status(f"Measurement complete, retrieving data...")
             
-            # Create output context
-            context = CountPlanContext(
-                run_uid=result.run_uid,
-                detectors=detectors,
-                num_readings=num,
-                timestamp=result.timestamp,
-                status="completed"
+            # ==========================================
+            # STEP 2: Retrieve the data
+            # ==========================================
+            logger.info(f"📥 Step 2: Retrieving data for {run_uid}")
+            
+            run_data = bl531_data.get_run_data(run_uid)
+            
+            logger.info(f"✅ Data retrieved:\n{run_data}")
+            streamer.status(f"Data retrieved successfully!")
+            
+            # ==========================================
+            # STEP 3: Create formatted context
+            # ==========================================
+            # Create context with ALL array data loaded
+            context = RunDataContext(
+                run_uid=run_uid,
+                metadata=run_data.metadata,
+                detector_data=run_data.detectors,  # Full arrays
+                motor_data=run_data.motors,        # Full arrays
+                other_data=run_data.other,         # Full arrays
+                available_images=list(run_data.images.keys())  # Just keys, not data
             )
-            
-            # Store context and return
-            context_updates = StateManager.store_context(
+            logger.info(context)
+            # Store and return
+            return StateManager.store_context(
                 state,
-                registry.context_types.COUNT_PLAN_CONTEXT,
+                registry.context_types.RUN_DATA_CONTEXT,
                 context_key,
                 context
             )
             
-            return context_updates
-            
         except Exception as e:
             logger.error(f"Count execution error: {e}")
-            raise
+            raise CountCapabilityError(f"Count failed: {str(e)}")
     
     @staticmethod
     def classify_error(exc: Exception, context: dict) -> ErrorClassification:
-        """Classify count errors for intelligent retry coordination."""
+        """Classify errors."""
         
         if isinstance(exc, (ConnectionError, TimeoutError)):
             return ErrorClassification(
@@ -141,270 +144,128 @@ class CountCapability(BaseCapability):
                 user_message="Beamline communication timeout, retrying...",
                 metadata={"type": "connection_error"}
             )
-        elif isinstance(exc, ValueError):
-            return ErrorClassification(
-                severity=ErrorSeverity.CRITICAL,
-                user_message=f"Invalid count parameters: {str(exc)}",
-                metadata={"type": "invalid_parameter"}
-            )
-        elif isinstance(exc, InvalidDetectorError):
-            return ErrorClassification(
-                severity=ErrorSeverity.CRITICAL,
-                user_message=f"Invalid detector specified: {str(exc)}",
-                metadata={"type": "invalid_detector"}
-            )
         else:
             return ErrorClassification(
                 severity=ErrorSeverity.CRITICAL,
-                user_message=f"Count execution error: {str(exc)}",
+                user_message=f"Count error: {str(exc)}",
                 metadata={"type": "execution_error"}
             )
     
     def _create_orchestrator_guide(self) -> Optional[OrchestratorGuide]:
-        """Provide orchestration guidance for the AI planner."""
+        """Provide orchestration guidance."""
         
         example1 = OrchestratorExample(
             step=PlannedStep(
-                context_key="beam_intensity",
+                context_key="intensity_data",
                 capability="bl531_count",
-                task_objective="Measure beam intensity using diode detector.",
-                expected_output=registry.context_types.COUNT_PLAN_CONTEXT,
-                success_criteria="Successfully reads diode value and returns run_uid.",
+                task_objective="Measure beam intensity and return the value for display to user.",
+                expected_output=registry.context_types.RUN_DATA_CONTEXT,
+                success_criteria="Returns RUN_DATA_CONTEXT with detector values accessible via get_summary()['beam_intensity'] or ['measurements']['diode']",
                 inputs={
                     "DETECTORS": ["diode"],
-                    "NUM_READINGS": ['1'],
+                    "NUM_READINGS": "1"
                 }
             ),
-            scenario_description="User wants to measure beam intensity or beam current.",
-            notes="IMPORTANT: Use 'diode' ONLY for intensity/current measurements, NOT for images."
+            scenario_description="User: 'What is the beam intensity?'",
+            notes="Output: RUN_DATA_CONTEXT.get_summary() returns dict with 'beam_intensity' and 'measurements' fields containing actual values"
         )
         
         example2 = OrchestratorExample(
             step=PlannedStep(
-                context_key="single_image",
+                context_key="image_data",
                 capability="bl531_count",
-                task_objective="Take a single scattering image with the detector.",
-                expected_output=registry.context_types.COUNT_PLAN_CONTEXT,
-                success_criteria="Successfully captures one scattering image and returns run_uid.",
+                task_objective="Take scattering image and return metadata.",
+                expected_output=registry.context_types.RUN_DATA_CONTEXT,
+                success_criteria="Returns RUN_DATA_CONTEXT with image availability info in get_summary()['available_images']",
                 inputs={
                     "DETECTORS": ["det"],
-                    "NUM_READINGS": ['1'],
+                    "NUM_READINGS": "1"
                 }
             ),
-            scenario_description="User wants to take an image or capture scattering pattern.",
-            notes="IMPORTANT: Use 'det' for ALL image-related requests (scattering images, direct beam images, pictures)."
-        )
-        
-        example3 = OrchestratorExample(
-            step=PlannedStep(
-                context_key="three_images",
-                capability="bl531_count",
-                task_objective="Take three scattering images with the detector.",
-                expected_output=registry.context_types.COUNT_PLAN_CONTEXT,
-                success_criteria="Successfully captures three images and returns run_uid.",
-                inputs={
-                    "DETECTORS": ["det"],
-                    "NUM_READINGS": ['3'],
-                }
-            ),
-            scenario_description="User wants to take multiple images at the current position.",
-            notes="IMPORTANT: Use 'det' for images, NOT 'diode'. Set NUM_READINGS to the number of images requested."
-        )
-        
-        example4 = OrchestratorExample(
-            step=PlannedStep(
-                context_key="multiple_readings",
-                capability="bl531_count",
-                task_objective="Take 5 intensity readings with diode.",
-                expected_output=registry.context_types.COUNT_PLAN_CONTEXT,
-                success_criteria="Successfully reads diode 5 times and returns run_uid.",
-                inputs={
-                    "DETECTORS": ["diode"],
-                    "NUM_READINGS": ['5'],
-                }
-            ),
-            scenario_description="User wants multiple intensity measurements.",
-            notes="IMPORTANT: Use 'diode' for intensity, 'det' for images. Never mix them up."
+            scenario_description="User: 'Take an image'",
+            notes="Output: RUN_DATA_CONTEXT.get_summary() contains run_uid and available_images list"
         )
         
         return OrchestratorGuide(
             instructions=textwrap.dedent("""
-                **When to plan "bl531_count" steps:**
-                - User wants to read detector values without moving motors
-                - User wants to measure beam intensity
-                - User wants to take image(s) at current position
-                - User asks to "count", "read", "measure", or "take image"
+                **bl531_count: Measure and return data automatically**
                 
-                **CRITICAL DETECTOR SELECTION RULES:**
+                Executes measurement → retrieves data → returns formatted results
                 
-                ⚠️  **DETECTOR "det" (Pilatus area detector):**
-                - Use for: images, pictures, scattering patterns, scattering images, direct beam images
-                - Use for: ANY request mentioning "image", "picture", "pattern", "scattering"
-                - This is an AREA DETECTOR that captures 2D images
-                - Examples: "take an image", "capture scattering", "take 3 images", "get a picture"
+                ═══════════════════════════════════════════════════════════
                 
-                ⚠️  **DETECTOR "diode" (Intensity Monitor):**
-                - Use for: beam intensity, beam current, intensity measurements
-                - Use for: ANY request about "intensity", "current", "flux"
-                - This is a SINGLE-VALUE detector (not an image)
-                - Examples: "measure intensity", "read beam current", "check intensity"
+                **INPUTS:**
                 
-                **NEVER use 'diode' for images! NEVER use 'det' for intensity!**
+                {
+                    "DETECTORS": ["det"] or ["diode"],
+                    "NUM_READINGS": "1" or "3" or "5"
+                }
                 
-                **Inputs:**
-                You MUST populate the `inputs` field with these keys:
-                - `DETECTORS`: List of detectors to read
-                * ["det"] - For ALL image-related requests (scattering, direct beam, pictures)
-                * ["diode"] - For intensity/current measurements ONLY
-                * ["diode", "det"] - For both simultaneously (rare)
-                - `NUM_READINGS`: Number of times to read (integer, default: 1)
-                * Use 1 for single measurement or single image
-                * Use N for N repeated readings/images
+                **DETECTOR CHOICE:**
+                - Images → ["det"]
+                - Intensity → ["diode"]
                 
-                **Translation Examples:**
+                ═══════════════════════════════════════════════════════════
                 
-                "Measure beam intensity"
-                → DETECTORS: ["diode"], NUM_READINGS: ['1']
+                **EXAMPLES:**
+                
+                "What is beam intensity?"
+                → inputs: {"DETECTORS": ["diode"], "NUM_READINGS": "1"}
+                → context_key: "intensity_data"
                 
                 "Take an image"
-                → DETECTORS: ["det"], NUM_READINGS: ['1']
+                → inputs: {"DETECTORS": ["det"], "NUM_READINGS": "1"}
+                → context_key: "image_data"
                 
                 "Take 3 images"
-                → DETECTORS: ["det"], NUM_READINGS: ['3']
+                → inputs: {"DETECTORS": ["det"], "NUM_READINGS": "3"}
+                → context_key: "multi_images"
                 
-                "Capture scattering pattern"
-                → DETECTORS: ["det"], NUM_READINGS: ['1']
+                ═══════════════════════════════════════════════════════════
                 
-                "Take 5 measurements with diode"
-                → DETECTORS: ["diode"], NUM_READINGS: ['5']
+                **OUTPUT - RUN_DATA_CONTEXT:**
                 
-                "Get direct beam image"
-                → DETECTORS: ["det"], NUM_READINGS: ['1']
+                Contains measurement data accessible via:
                 
-                **Common Mistakes to Avoid:**
-                ❌ WRONG: "take 3 images" → ["diode"]
-                ✅ RIGHT: "take 3 images" → ["det"], NUM_READINGS: ['3']
+                summary = context.RUN_DATA_CONTEXT.<context_key>.get_summary()
                 
-                ❌ WRONG: "measure intensity" → ["det"]
-                ✅ RIGHT: "measure intensity" → ["diode"], NUM_READINGS: ['1']
+                For INTENSITY measurements (diode):
+                - summary['beam_intensity'] → the intensity value
+                - summary['measurements']['diode'] → same value
+                - summary['measurements']['ts_diode'] → timestamp
                 
-                **Important:**
-                - For images at CURRENT position: use bl531_count
-                - For images at MULTIPLE positions: use bl531_scan
-                - Count plan does NOT move motors
+                For IMAGE captures (det):
+                - summary['available_images'] → list of image keys
+                - summary['run_uid'] → for accessing images later
                 
-                **Output:**
-                Produces a COUNT_PLAN_CONTEXT object containing run_uid for data retrieval.
+                IMPORTANT: Always use get_summary() to access values!
+                
+                ═══════════════════════════════════════════════════════════
                 """),
-            examples=[example1, example2, example3, example4],
+            examples=[example1, example2],
             priority=10
-        )
-
-    def _create_classifier_guide(self) -> Optional[TaskClassifierGuide]:
-        """Provide guidance for the initial task classifier AI."""
-        
-        return TaskClassifierGuide(
-            instructions="Determine if the user wants to READ detectors OR take images at the current position (without scanning motors).",
-            examples=[
-                ClassifierExample(
-                    query="Take a measurement with the diode detector",
-                    result=True,
-                    reason="Single intensity reading at current position - use count with diode."
-                ),
-                ClassifierExample(
-                    query="Read beam intensity",
-                    result=True,
-                    reason="Measure intensity using diode - use count."
-                ),
-                ClassifierExample(
-                    query="Take an image",
-                    result=True,
-                    reason="Single image at current position - use count with det."
-                ),
-                ClassifierExample(
-                    query="Take 3 images",
-                    result=True,
-                    reason="Multiple images at current position - use count with det, num=3."
-                ),
-                ClassifierExample(
-                    query="Capture scattering pattern",
-                    result=True,
-                    reason="Take scattering image - use count with det."
-                ),
-                ClassifierExample(
-                    query="Get direct beam image",
-                    result=True,
-                    reason="Image capture - use count with det."
-                ),
-                ClassifierExample(
-                    query="What is the current diode reading",
-                    result=True,
-                    reason="Read current intensity - use count with diode."
-                ),
-                ClassifierExample(
-                    query="Scan motor from 0.1 to 0.2 taking images",
-                    result=False,
-                    reason="Images at multiple positions - use bl531_scan instead."
-                ),
-                ClassifierExample(
-                    query="Take images at different angles",
-                    result=False,
-                    reason="Multiple positions - use bl531_scan instead."
-                ),
-                ClassifierExample(
-                    query="Align the beamline",
-                    result=False,
-                    reason="Alignment procedure - use alignment capability."
-                ),
-            ],
-            actions_if_true=ClassifierActions()
         )
     
     def _create_classifier_guide(self) -> Optional[TaskClassifierGuide]:
-        """Provide guidance for the initial task classifier AI."""
+        """Classifier guidance."""
         
         return TaskClassifierGuide(
-            instructions="Determine if the user wants to READ detectors at the current position (without scanning).",
+            instructions="Use for measurements at current position (no motor movement).",
             examples=[
                 ClassifierExample(
-                    query="Take a measurement with the diode detector",
+                    query="What is beam intensity?",
                     result=True,
-                    reason="Single reading of diode at current position."
-                ),
-                ClassifierExample(
-                    query="Read beam intensity",
-                    result=True,
-                    reason="Measure intensity using diode - no motor movement."
+                    reason="Measure intensity at current position"
                 ),
                 ClassifierExample(
                     query="Take an image",
                     result=True,
-                    reason="Single image capture at current position using det."
+                    reason="Take image at current position"
                 ),
                 ClassifierExample(
-                    query="Take 5 measurements of both detectors",
-                    result=True,
-                    reason="Multiple readings at current position - use count."
-                ),
-                ClassifierExample(
-                    query="What is the current diode reading",
-                    result=True,
-                    reason="Read current value - use count plan."
-                ),
-                ClassifierExample(
-                    query="Scan the motor from 0.1 to 0.2",
+                    query="Scan from 0.1 to 0.2",
                     result=False,
-                    reason="Motor scanning - use bl531_scan instead."
-                ),
-                ClassifierExample(
-                    query="Take images at different angles",
-                    result=False,
-                    reason="Multiple positions - use bl531_scan instead."
-                ),
-                ClassifierExample(
-                    query="Align the beamline",
-                    result=False,
-                    reason="Alignment procedure - use alignment capability."
+                    reason="Scanning - use bl531_scan"
                 ),
             ],
             actions_if_true=ClassifierActions()

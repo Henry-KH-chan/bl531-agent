@@ -66,8 +66,8 @@ class GISAXSAlignmentCapability(BaseCapability):
             # Call API to submit alignment plan
             result = bl531.automatic_gisaxs_alignment()
             
-            logger.info(f"✅ Alignment completed. run_uid: {result.run_uid}")
-            streamer.status(f"Alignment completed with run_uid: {result.run_uid}")
+            logger.info(f"✅ GISAXS alignment completed. run_uid: {result.run_uid}")
+            streamer.status(f"✅ GISAXS alignment completed (run_uid: {result.run_uid})")
             
             # Create and store output context
             context = AlignmentContext(
@@ -85,7 +85,7 @@ class GISAXSAlignmentCapability(BaseCapability):
             )
             
         except Exception as e:
-            logger.error(f"Alignment execution error: {e}")
+            logger.error(f"GISAXS alignment execution error: {e}")
             raise AlignmentExecutionError(f"GISAXS alignment failed: {str(e)}")
     
     @staticmethod
@@ -95,19 +95,19 @@ class GISAXSAlignmentCapability(BaseCapability):
         if isinstance(exc, (ConnectionError, TimeoutError)):
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,
-                user_message="Beamline communication timeout during alignment, retrying...",
+                user_message="Beamline communication timeout during GISAXS alignment, retrying...",
                 metadata={"type": "connection_error"}
             )
         elif isinstance(exc, AlignmentExecutionError):
             return ErrorClassification(
                 severity=ErrorSeverity.CRITICAL,
-                user_message=f"Alignment failed: {str(exc)}",
+                user_message=f"GISAXS alignment failed: {str(exc)}",
                 metadata={"type": "alignment_failed"}
             )
         else:
             return ErrorClassification(
                 severity=ErrorSeverity.CRITICAL,
-                user_message=f"Alignment error: {str(exc)}",
+                user_message=f"GISAXS alignment error: {str(exc)}",
                 metadata={"type": "unknown_error"}
             )
     
@@ -115,28 +115,28 @@ class GISAXSAlignmentCapability(BaseCapability):
         """Provide orchestration guidance for the AI planner."""
         
         # Example 1: Direct alignment request
-        alignment_example = OrchestratorExample(
+        example1 = OrchestratorExample(
             step=PlannedStep(
                 context_key="alignment_result",
                 capability="bl531_gisaxs_alignment",
                 task_objective="Execute automatic GISAXS alignment to find reference zero angle.",
                 expected_output=registry.context_types.ALIGNMENT_CONTEXT,
                 success_criteria="Alignment completes successfully and returns run_uid.",
-                inputs={}  # No inputs required
+                inputs=[]  # ← Changed from {} to []
             ),
             scenario_description="User: 'Align the beamline' or 'Find reference zero angle'",
             notes="No inputs needed - alignment is fully automatic."
         )
         
         # Example 2: Pre-GISAXS alignment
-        pre_gisaxs_example = OrchestratorExample(
+        example2 = OrchestratorExample(
             step=PlannedStep(
                 context_key="pre_scan_alignment",
                 capability="bl531_gisaxs_alignment",
                 task_objective="Perform alignment before GISAXS scan to ensure accurate angle positioning.",
                 expected_output=registry.context_types.ALIGNMENT_CONTEXT,
                 success_criteria="Alignment completes successfully.",
-                inputs={}
+                inputs=[]  # ← Changed from {} to []
             ),
             scenario_description="Alignment before GISAXS measurements",
             notes="Best practice: align before GISAXS scans for accurate results."
@@ -144,35 +144,62 @@ class GISAXSAlignmentCapability(BaseCapability):
         
         return OrchestratorGuide(
             instructions=textwrap.dedent("""
-                **USE bl531_gisaxs_alignment FOR:**
-                - Finding reference zero angle (critical angle)
-                - Aligning the beamline before GISAXS measurements
-                - Calibrating grazing incidence angle positioning
+                **bl531_gisaxs_alignment: Find reference zero angle**
                 
-                **NO INPUTS REQUIRED:**
-                This capability is fully automatic - no parameters needed.
-                Just create a step with empty inputs: `inputs={}`
+                ═══════════════════════════════════════════════════════════
+                
+                **PURPOSE:**
+                Automatically finds the reference zero angle (critical angle) for
+                grazing incidence X-ray scattering (GISAXS) measurements.
+                
+                ═══════════════════════════════════════════════════════════
                 
                 **WHEN TO USE:**
-                - User explicitly asks to "align" or "find reference angle"
-                - Before GISAXS scans for best accuracy (optional but recommended)
-                - After major beamline changes or sample mounting
                 
-                **IMPORTANT:**
-                - Alignment must complete BEFORE any GISAXS scans
-                - If user wants both alignment + scan, create TWO steps:
-                  1. bl531_gisaxs_alignment (find reference)
-                  2. bl531_scan (perform GISAXS)
+                ✅ User explicitly asks:
+                - "Align the beamline"
+                - "Find reference zero angle"
+                - "Do GISAXS alignment"
+                - "Calibrate grazing incidence angle"
                 
-                **EXAMPLE WORKFLOW:**
-                User: "Align and then do GISAXS from 0.1 to 0.2"
-                → Step 1: bl531_gisaxs_alignment (inputs={})
-                → Step 2: bl531_scan (with GISAXS parameters)
+                ✅ Best practices (optional):
+                - Before GISAXS scans for accurate angle positioning
+                - After sample mounting or major beamline changes
+                
+                ═══════════════════════════════════════════════════════════
+                
+                **NO INPUTS REQUIRED:**
+                
+                This capability is fully automatic.
+                
+                inputs: []  (empty list)
+                
+                ═══════════════════════════════════════════════════════════
+                
+                **EXAMPLE WORKFLOWS:**
+                
+                1. Simple alignment:
+                   User: "Align the beamline"
+                   → Step 1: bl531_gisaxs_alignment (inputs: [])
+                
+                2. Alignment + GISAXS scan:
+                   User: "Align and then do GISAXS from 0.1 to 0.2"
+                   → Step 1: bl531_gisaxs_alignment (inputs: [])
+                   → Step 2: bl531_scan (gi_angle from 0.1 to 0.2)
+                
+                3. Complete GISAXS workflow:
+                   User: "Prepare for GISAXS and scan angle 0.1 to 0.2"
+                   → Step 1: bl531_gisaxs_alignment
+                   → Step 2: bl531_scan (GISAXS parameters)
+                
+                ═══════════════════════════════════════════════════════════
                 
                 **OUTPUT:**
                 Returns ALIGNMENT_CONTEXT with run_uid for the alignment procedure.
+                
+                ═══════════════════════════════════════════════════════════
                 """),
-            examples=[alignment_example, pre_gisaxs_example],
+            examples=[example1, example2],
             priority=10
         )
     
@@ -180,17 +207,17 @@ class GISAXSAlignmentCapability(BaseCapability):
         """Provide guidance for the initial task classifier AI."""
         
         return TaskClassifierGuide(
-            instructions="Check if user wants to perform GISAXS alignment or find reference zero angle.",
+            instructions="Use for GISAXS beamline alignment and reference angle calibration.",
             examples=[
                 ClassifierExample(
                     query="Align the beamline",
                     result=True,
-                    reason="Direct alignment request - use bl531_gisaxs_alignment"
+                    reason="General beamline alignment for GISAXS"
                 ),
                 ClassifierExample(
                     query="Find reference zero angle",
                     result=True,
-                    reason="Finding reference angle is alignment - use bl531_gisaxs_alignment"
+                    reason="Finding reference angle requires GISAXS alignment"
                 ),
                 ClassifierExample(
                     query="Do GISAXS alignment",
@@ -200,27 +227,27 @@ class GISAXSAlignmentCapability(BaseCapability):
                 ClassifierExample(
                     query="Calibrate grazing incidence angle",
                     result=True,
-                    reason="Calibration requires alignment procedure"
+                    reason="Angle calibration is part of GISAXS alignment"
                 ),
                 ClassifierExample(
                     query="Align and then scan from 0.1 to 0.2",
                     result=True,
-                    reason="Includes alignment (will need scan step too)"
+                    reason="Includes alignment step before scan"
+                ),
+                ClassifierExample(
+                    query="Align the diode",
+                    result=False,
+                    reason="Diode alignment - use bl531_diode_alignment"
                 ),
                 ClassifierExample(
                     query="GISAXS from 0.1 to 0.2",
                     result=False,
-                    reason="Just scanning, no alignment requested - use bl531_scan only"
+                    reason="Just scanning, no alignment - use bl531_scan only"
                 ),
                 ClassifierExample(
                     query="What is the current angle?",
                     result=False,
                     reason="Question, not alignment command"
-                ),
-                ClassifierExample(
-                    query="Take an image",
-                    result=False,
-                    reason="Image capture - use bl531_count"
                 ),
             ],
             actions_if_true=ClassifierActions()

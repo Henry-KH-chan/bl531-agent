@@ -29,8 +29,11 @@ logger = get_logger("bl531_api")
 
 BL531_MOTORS = {
     "hexapod_motor_Ry",
-    "gi_angle",
+    "hexapod_motor_Rz",
+    "hexapod_motor_Ty",
     "hexapod_motor_Tz",
+    "gi_angle",
+    "mono_energy"
 }
 
 BL531_DETECTORS = {
@@ -210,6 +213,9 @@ class BL531API:
         logger.info("🎯 Submitting automatic GISAXS alignment plan")
         
         if self.mock_mode:
+            # Simulate long execution in mock mode
+            logger.info("🎭 Simulating alignment process in MOCK MODE...")
+            time.sleep(8 * 60)  # Simulate 8 minutes delay for mock mode
             return self._mock_plan_execution("automatic_gisaxs_alignment")
         
         plan_dict = {
@@ -226,11 +232,69 @@ class BL531API:
         item_uid = self._submit_plan(plan_dict)
         run_uid = self._wait_for_completion(item_uid)
         
-        logger.info(f"✅ Alignment completed. run_uid: {run_uid}")
+        logger.info(f"✅ GISAXS alignment completed. run_uid: {run_uid}")
         
         return PlanResult(
             run_uid=run_uid,
             plan_name="automatic_gisaxs_alignment",
+            timestamp=datetime.now()
+        )
+
+    def automatic_diode_alignment(
+        self,
+        x_range: float = 0.5,
+        x_points: int = 5,
+        y_range: float = 0.5,
+        y_points: int = 5,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> PlanResult:
+        """
+        Submit an automatic diode alignment plan.
+        
+        Scans the beam position to optimize alignment on the diode detector.
+
+        Args:
+            x_range: Range to scan in X direction (mm)
+            x_points: Number of points in X scan
+            y_range: Range to scan in Y direction (mm)
+            y_points: Number of points in Y scan
+            metadata: Optional metadata dict
+
+        Returns:
+            PlanResult with run_uid
+        """
+        logger.info(
+            f"🎯 Submitting automatic diode alignment plan: "
+            f"x_range={x_range}, x_points={x_points}, "
+            f"y_range={y_range}, y_points={y_points}"
+        )
+        
+        if self.mock_mode:
+            return self._mock_plan_execution("automatic_diode_alignment")
+        
+        plan_dict = {
+            "item": {
+                "name": "automatic_diode_alignment",
+                "kwargs": {
+                    "x_range": x_range,
+                    "x_points": x_points,
+                    "y_range": y_range,
+                    "y_points": y_points,
+                    "md": metadata or {}
+                },
+                "item_type": "plan",
+            },
+            "pos": "back"
+        }
+        
+        item_uid = self._submit_plan(plan_dict)
+        run_uid = self._wait_for_completion(item_uid)
+        
+        logger.info(f"✅ Diode alignment completed. run_uid: {run_uid}")
+        
+        return PlanResult(
+            run_uid=run_uid,
+            plan_name="automatic_diode_alignment",
             timestamp=datetime.now()
         )
 
@@ -330,7 +394,7 @@ if MOCK_MODE:
     )
 else:
     # Try localhost first, fallback to docker internal
-    base_url = os.getenv("BL531_BASE_URL", "http://localhost:60610")
+    base_url = os.getenv("BL531_BASE_URL", "http://192.168.10.155:60610")
     api_key = os.getenv("BL531_API_KEY", "test")
     
     logger.info(f"Creating BL531API instance with base_url={base_url}")

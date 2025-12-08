@@ -8,7 +8,7 @@
 build_dir: ./build
 
 # Root directory (absolute path)
-project_root: /home/nmanha/bl531
+project_root: /home/bl531user/Repos/bl531-agent
 
 # Application Registry
 registry_path: ./src/bl531/registry.py
@@ -195,7 +195,7 @@ execution:
 python_executor:
   max_generation_retries: 3
   max_execution_retries: 3
-  execution_timeout_seconds: 600
+  execution_timeout_seconds: 900
 
 # ============================================================
 # APPLICATION METADATA

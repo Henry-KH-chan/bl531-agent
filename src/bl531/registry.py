@@ -10,14 +10,14 @@ BL531 COMPONENTS REGISTERED:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 CAPABILITIES:
-  - bl531_count: Execute count plan (read detectors n times)
-  - bl531_scan: Execute scan plan (scan motor while reading detectors)
+  - bl531_count: Execute count plan and return data
+  - bl531_scan: Execute scan plan and return data
   - bl531_gisaxs_alignment: Execute automatic GISAXS alignment
+  - bl531_retrieve_data: Retrieve data from completed runs
 
 CONTEXT CLASSES:
-  - COUNT_PLAN_CONTEXT: Output from count capability
-  - SCAN_PLAN_CONTEXT: Output from scan capability
-  - GISAXS_ALIGNMENT_CONTEXT: Output from alignment capability
+  - RUN_DATA_CONTEXT: Measurement data with detector/motor values
+  - ALIGNMENT_CONTEXT: Output from alignment capability
 
 FRAMEWORK CAPABILITIES (Automatic):
   - routing: Routes tasks to appropriate capabilities
@@ -63,37 +63,35 @@ class Bl531RegistryProvider(RegistryConfigProvider):
                 # ────────────────────────────────────────────────────────
                 # COUNT CAPABILITY
                 # ────────────────────────────────────────────────────────
-                # Executes a count plan: reads detectors n times
-                # No motor movement, just detector readings or image capture
+                # Executes count plan, retrieves data, returns formatted results
+                # Complete workflow: measure → retrieve → format
                 CapabilityRegistration(
                     name="bl531_count",
                     module_path="bl531.capabilities.count_capability",
                     class_name="CountCapability",
-                    description="Execute a count plan on BL531 beamline - read detectors or take images without moving motors",
-                    provides=["COUNT_PLAN_CONTEXT"],
-                    requires=["DETECTORS", "NUM_READINGS"]  # Orchestrator provides these inputs
+                    description="Execute count plan and return measurement data (detectors, no motor movement)",
+                    provides=["RUN_DATA_CONTEXT"],
+                    requires=["DETECTORS", "NUM_READINGS"]
                 ),
 
                 # ────────────────────────────────────────────────────────
                 # SCAN CAPABILITY
                 # ────────────────────────────────────────────────────────
-                # Executes a scan plan: scans a motor while reading detectors
-                # Returns run_uid for accessing scan data
+                # Executes scan plan, retrieves data, returns formatted results
+                # Complete workflow: scan → retrieve → format
                 CapabilityRegistration(
                     name="bl531_scan",
                     module_path="bl531.capabilities.scan_capability",
                     class_name="ScanCapability",
-                    description="Execute a scan plan on BL531 beamline - scan motor while reading detectors",
-                    provides=["SCAN_PLAN_CONTEXT"],
-                    requires=["MOTOR_NAME", "START_POSITION", "STOP_POSITION", "NUM_POINTS", "DETECTORS"]  # Orchestrator provides these inputs
+                    description="Execute scan plan and return scan data (motor + detectors)",
+                    provides=["RUN_DATA_CONTEXT"],
+                    requires=["MOTOR_NAME", "START_POSITION", "STOP_POSITION", "NUM_POINTS", "DETECTORS"]
                 ),
                 
                 # ────────────────────────────────────────────────────────
                 # GISAXS ALIGNMENT CAPABILITY
                 # ────────────────────────────────────────────────────────
-                # Executes automatic GISAXS alignment
-                # Finds reference zero angle of Ry motor
-                # Add to capabilities list
+                # Executes automatic GISAXS alignment to find reference zero angle
                 CapabilityRegistration(
                     name="bl531_gisaxs_alignment",
                     module_path="bl531.capabilities.gisaxs_alignment_capability",
@@ -102,77 +100,75 @@ class Bl531RegistryProvider(RegistryConfigProvider):
                     provides=["ALIGNMENT_CONTEXT"],
                     requires=[]
                 ),
+
+                # ────────────────────────────────────────────────────────
+                # DIODE ALIGNMENT CAPABILITY
+                # ────────────────────────────────────────────────────────
+                # Executes automatic diode alignment to find optimum position for diode
+
+                CapabilityRegistration(
+                    name="bl531_diode_alignment",
+                    module_path="bl531.capabilities.diode_alignment_capability",
+                    class_name="DiodeAlignmentCapability",
+                    description="Execute automatic diode alignment to optimize beam position",
+                    provides=["ALIGNMENT_CONTEXT"],
+                    requires=[]
+                ),
                 
                 # ────────────────────────────────────────────────────────
-                # GISAXS ALIGNMENT CAPABILITY
+                # RETRIEVE DATA CAPABILITY
                 # ────────────────────────────────────────────────────────
-                # Executes automatic GISAXS alignment
-                # Finds reference zero angle of Ry motor
-                # CapabilityRegistration(
-                #     name="bl531_gisaxs_alignment",
-                #     module_path="bl531.capabilities.gisaxs_alignment_capability",
-                #     class_name="GisaxsAlignmentCapability",
-                #     description="Execute automatic GISAXS alignment on BL531 beamline - find reference zero angle",
-                #     provides=["GISAXS_ALIGNMENT_CONTEXT"],
-                #     requires=[]
-                # ),
+                # Retrieves data from completed runs using run_uid
+                # For manual data access or re-retrieving past experiments
+                CapabilityRegistration(
+                    name="bl531_retrieve_data",
+                    module_path="bl531.capabilities.retrieve_data_capability",
+                    class_name="RetrieveDataCapability",
+                    description="Retrieve experimental data from completed runs using run_uid",
+                    provides=["RUN_DATA_CONTEXT"],
+                    requires=["RUN_UID"]
+                ),
+
+                CapabilityRegistration(
+                    name="bl531_move",
+                    module_path="bl531.capabilities.move_capability",
+                    class_name="MoveCapability",
+                    description="Move a motor to a specific position",
+                    provides=[],
+                    requires=["MOTOR_NAME", "TARGET_POSITION"]
+                ),
                 
             ],
             
             # ┌────────────────────────────────────────────────────────────┐
             # │ CONTEXT CLASSES: Data structures for capability outputs    │
             # └────────────────────────────────────────────────────────────┘
-            
+
             context_classes=[
                 
                 # ────────────────────────────────────────────────────────
-                # COUNT PLAN CONTEXT
+                # RUN DATA CONTEXT
                 # ────────────────────────────────────────────────────────
-                # Output from count capability
-                # Contains: run_uid, detectors, num_readings, status
+                # Complete experimental data from a run
+                # Contains: detector values, motor positions, metadata, arrays
+                # Returned by: bl531_count, bl531_scan, bl531_retrieve_data
                 ContextClassRegistration(
-                    context_type="COUNT_PLAN_CONTEXT",
+                    context_type="RUN_DATA_CONTEXT",
                     module_path="bl531.context_classes",
-                    class_name="CountPlanContext"
+                    class_name="RunDataContext"
                 ),
                 
                 # ────────────────────────────────────────────────────────
-                # GISAXS ALIGNMENT CONTEXT
-                # ─────────────────────────────────────────────────
+                # ALIGNMENT CONTEXT
                 # ────────────────────────────────────────────────────────
-                # SCAN PLAN CONTEXT
-                # ────────────────────────────────────────────────────────
-                # Output from scan capability
-                # Contains: run_uid, motor, start, stop, num_points, detectors, status
-                ContextClassRegistration(
-                    context_type="SCAN_PLAN_CONTEXT",
-                    module_path="bl531.context_classes",
-                    class_name="ScanPlanContext"
-                ),
-                
-                # Add to context_classes list
+                # Output from GISAXS alignment
+                # Contains: run_uid, alignment_type, status, timestamp
                 ContextClassRegistration(
                     context_type="ALIGNMENT_CONTEXT",
                     module_path="bl531.context_classes",
                     class_name="AlignmentContext"
                 ),
-
-
-                # ────────────────────────────────────────────────────────
-                # GISAXS ALIGNMENT CONTEXT
-                # ────────────────────────────────────────────────────────
-                # Output from alignment capability
-                # Contains: run_uid, status, timestamp
-                # ContextClassRegistration(
-                #     context_type="GISAXS_ALIGNMENT_CONTEXT",
-                #     module_path="bl531.context_classes",
-                #     class_name="GisaxsAlignmentContext"
-                # ),
-                ContextClassRegistration(
-                    context_type="SCAN_PARAMETERS",
-                    module_path="bl531.context_classes",
-                    class_name="ScanParametersContext"
-                ),
+                
             ],
             
             # No data sources needed for BL531 (pure control API)
@@ -189,15 +185,15 @@ class Bl531RegistryProvider(RegistryConfigProvider):
 #
 # WHAT GETS REGISTERED:
 #
-# Capabilities (3):
-#   1. bl531_count - Read detectors (no motor movement)
-#   2. bl531_scan - Scan motor while reading detectors
-#   3. bl531_gisaxs_alignment - Automatic alignment procedure
+# Capabilities (4):
+#   1. bl531_count - Measure with detectors and return data
+#   2. bl531_scan - Scan motor and return data
+#   3. bl531_gisaxs_alignment - Automatic alignment
+#   4. bl531_retrieve_data - Fetch data from past runs
 #
-# Context Classes (3):
-#   1. CountPlanContext - Stores count plan execution details
-#   2. ScanPlanContext - Stores scan plan execution details
-#   3. GisaxsAlignmentContext - Stores alignment plan details
+# Context Classes (2):
+#   1. RUN_DATA_CONTEXT - Measurement data (detectors, motors, arrays)
+#   2. ALIGNMENT_CONTEXT - Alignment results
 #
 # Framework Capabilities (Automatic, ~6):
 #   - routing: Task routing between capabilities
@@ -209,84 +205,55 @@ class Bl531RegistryProvider(RegistryConfigProvider):
 #
 # DATA FLOW:
 #
-#   User Query
+#   User Query: "What is beam intensity?"
 #       ↓
-#   Classifier → Determine which capability(ies) to use
+#   Classifier → Recognize measurement request
 #       ↓
-#   Router → Route to bl531_count / bl531_scan / bl531_gisaxs_alignment
+#   Router → Route to bl531_count
 #       ↓
-#   BL531 Capability → Submit plan, get run_uid
+#   bl531_count:
+#       1. Submit count plan (detectors=["diode"])
+#       2. Retrieve data (get run_uid)
+#       3. Format data (create RUN_DATA_CONTEXT)
 #       ↓
-#   Context Store → Save COUNT_PLAN_CONTEXT / SCAN_PLAN_CONTEXT / etc
+#   Context Store → Save RUN_DATA_CONTEXT with actual values
 #       ↓
-#   Memory → Store run_uid for future reference
-#       ↓
-#   Respond → Tell user about the submitted plan
-#
-# ANALYSIS WORKFLOW (User's responsibility):
-#   After capability returns run_uid:
-#       run_uid → Data retrieval tool → Access Tiled data store
-#       ↓
-#       Analyze detector readings / motor positions / images
-#       ↓
-#       Return analysis results
+#   Respond → Display: "Beam intensity is -3.632"
 #
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TESTING THE REGISTRY
+# EXAMPLE CONVERSATIONS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #
-# To verify registry is configured correctly:
-#
-# >>> from osprey.registry import get_registry
-# >>> registry = get_registry()
-#
-# # Check capabilities
-# >>> caps = [c.name for c in registry.capabilities]
-# >>> print(caps)
-# ['routing', 'memory', 'python', 'classifier', 'respond', 
-#  'bl531_count', 'bl531_scan', 'bl531_gisaxs_alignment']
-#
-# # Check context types
-# >>> contexts = [ct for ct in dir(registry.context_types) 
-# ...              if not ct.startswith('_')]
-# >>> print(contexts)
-# ['COUNT_PLAN_CONTEXT', 'SCAN_PLAN_CONTEXT', 'GISAXS_ALIGNMENT_CONTEXT', ...]
-#
-# # Run the application
-# >>> framework chat
-#
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# EXAMPLE CONVERSATION
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#
-# User: "Take a measurement with the diode detector"
-#
+# Example 1: Simple measurement
+# -------------------------------
+# User: "What is beam intensity?"
 # System:
-#   1. Classifier: Recognizes this is a count plan request
-#   2. Router: Routes to bl531_count capability
-#   3. Count: Submits count plan (detectors=["diode"], num=1)
-#   4. Context: Stores CountPlanContext with run_uid
-#   5. Memory: Saves run_uid for reference
-#   6. Respond: Tells user "Measurement submitted with run_uid: abc123..."
+#   1. bl531_count(detectors=["diode"], num=1)
+#   2. Returns RUN_DATA_CONTEXT with beam_intensity=-3.632
+#   3. Respond: "The beam intensity is -3.632"
 #
-# User: "Scan Ty from 0 to 0.3 in 10 points"
-#
+# Example 2: Scan
+# ----------------
+# User: "Scan angle from 0.1 to 0.2 in 5 steps"
 # System:
-#   1. Classifier: Recognizes this is a scan plan request
-#   2. Router: Routes to bl531_scan capability
-#   3. Scan: Submits scan plan (motor, start, stop, num)
-#   4. Context: Stores ScanPlanContext with run_uid
-#   5. Memory: Saves run_uid for reference
-#   6. Respond: Tells user "Scan submitted with run_uid: def456..."
+#   1. bl531_scan(motor="gi_angle", start=0.1, stop=0.2, num=5)
+#   2. Returns RUN_DATA_CONTEXT with arrays
+#   3. Respond: "Scan completed. 5 measurements at angles [0.1, 0.125, 0.15, 0.175, 0.2]"
 #
+# Example 3: Alignment
+# ---------------------
 # User: "Align the beamline"
-#
 # System:
-#   1. Classifier: Recognizes this is an alignment request
-#   2. Router: Routes to bl531_gisaxs_alignment capability
-#   3. Alignment: Submits alignment plan
-#   4. Context: Stores GisaxsAlignmentContext with run_uid
-#   5. Memory: Saves run_uid for reference
-#   6. Respond: Tells user "Alignment submitted with run_uid: ghi789..."
+#   1. bl531_gisaxs_alignment()
+#   2. Returns ALIGNMENT_CONTEXT with run_uid
+#   3. Respond: "Alignment completed with run_uid: abc123..."
+#
+# Example 4: Retrieve past data
+# ------------------------------
+# User: "Get data for run abc-123-xyz"
+# System:
+#   1. bl531_retrieve_data(run_uid="abc-123-xyz")
+#   2. Returns RUN_DATA_CONTEXT with data
+#   3. Respond: "Retrieved data shows beam intensity was -3.8 at that time"
 #
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

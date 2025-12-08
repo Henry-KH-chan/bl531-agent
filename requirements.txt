@@ -3,4 +3,7 @@
 
 # Framework dependency
 osprey-framework>=0.8.1
-
+tiled
+stamina
+entrypoints
+dask

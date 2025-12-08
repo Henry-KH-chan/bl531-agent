@@ -50,5 +50,14 @@ services:
       # - http_proxy=${http_proxy}
       # - https_proxy=${https_proxy}
       # - NO_PROXY=${NO_PROXY}
+      
+      # ========================================
+      # BL531 Beamline Configuration
+      # ========================================
+      - BL531_MOCK_MODE=false
+      - BL531_BASE_URL=http://192.168.10.155:60610
+      - BL531_API_KEY=test
+      - TILED_URI=http://192.168.10.155:8000
+      - TILED_API_KEY=${TILED_API_KEY}
     networks:
       - osprey-network
